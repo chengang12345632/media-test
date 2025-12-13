@@ -3,7 +3,11 @@
 ## 一键启动
 
 ```powershell
-.\start-all.ps1
+# 首次运行需要先编译（约5-10分钟）
+powershell -ExecutionPolicy Bypass -File .\quick-test-setup.ps1
+
+# 启动所有服务
+powershell -ExecutionPolicy Bypass -File .\start-all-simple.ps1
 ```
 
 启动所有服务：平台服务器、设备模拟器、前端界面
@@ -15,7 +19,7 @@
 ## 一键测试
 
 ```powershell
-.\run-full-test.ps1
+powershell -ExecutionPolicy Bypass -File .\run-full-test.ps1
 ```
 
 自动完成：配置环境、编译、启动服务、运行测试、生成报告
@@ -49,8 +53,11 @@
 ## 快速命令
 
 ```powershell
+# 编译项目（首次运行）
+powershell -ExecutionPolicy Bypass -File .\quick-test-setup.ps1
+
 # 启动所有服务
-.\start-all.ps1
+powershell -ExecutionPolicy Bypass -File .\start-all-simple.ps1
 
 # 查看服务状态
 Invoke-RestMethod -Uri "http://localhost:8080/api/v1/health"

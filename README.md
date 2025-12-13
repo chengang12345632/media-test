@@ -87,12 +87,16 @@ cd device-simulator
 mkdir -p test-videos
 # 将测试视频文件放入 test-videos 目录
 
-# 3. 启动所有服务（使用启动脚本）
-./start-all.sh  # Linux/macOS
-.\start-all.ps1  # Windows
+# 3. 编译项目（首次运行）
+./quick-test-setup.sh  # Linux/macOS
+powershell -ExecutionPolicy Bypass -File .\quick-test-setup.ps1  # Windows
 
-# 4. 访问前端
-# 浏览器打开 http://localhost:3000
+# 4. 启动所有服务
+./start-all-simple.sh  # Linux/macOS
+powershell -ExecutionPolicy Bypass -File .\start-all-simple.ps1  # Windows
+
+# 5. 访问前端
+# 浏览器打开 http://localhost:5173
 ```
 
 **详细步骤**: 查看 [快速开始指南](./docs/快速开始指南.md)（15分钟完成）
@@ -233,6 +237,10 @@ rustup component add rustfmt clippy rust-analyzer
 cd web-frontend
 npm install
 
+# 编译项目
+powershell -ExecutionPolicy Bypass -File .\quick-test-setup.ps1  # Windows
+./quick-test-setup.sh   # Linux/macOS
+
 # 运行测试
 cargo test --all
 npm test
@@ -288,7 +296,8 @@ npm test
 
 ```bash
 # 启动所有服务
-./start-all.sh
+powershell -ExecutionPolicy Bypass -File .\start-all-simple.ps1  # Windows
+./start-all-simple.sh   # Linux/macOS
 
 # 运行集成测试
 cargo test --test integration_tests
