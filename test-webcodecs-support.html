@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebCodecs 支持检测</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        .test-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            margin: 8px 0;
+            background: #f9f9f9;
+            border-radius: 4px;
+            border-left: 4px solid #ddd;
+        }
+        .test-item.success {
+            border-left-color: #4caf50;
+            background: #f1f8f4;
+        }
+        .test-item.error {
+            border-left-color: #f44336;
+            background: #fef1f0;
+        }
+        .test-item.warning {
+            border-left-color: #ff9800;
+            background: #fff8f0;
+        }
+        .status {
+            font-weight: bold;
+            padding: 4px 12px;
+            border-radius: 4px;
+        }
+        .status.success {
+            background: #4caf50;
+            color: white;
+        }
+        .status.error {
+            background: #f44336;
+            color: white;
+        }
+        .status.warning {
+            background: #ff9800;
+            color: white;
+        }
+        .recommendation {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 4px;
+        }
+        .recommendation h3 {
+            margin-top: 0;
+            color: #1976d2;
+        }
+        code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🎥 WebCodecs 支持检测</h1>
+        <p>检测浏览器对 WebCodecs API 和 H.264 解码的支持情况</p>
+    </div>
+
+    <div class="card">
+        <h2>基础 API 支持</h2>
+        <div id="basic-tests"></div>
+    </div>
+
+    <div class="card">
+        <h2>H.264 编解码器支持</h2>
+        <div id="codec-tests"></div>
+    </div>
+
+    <div class="card">
+        <h2>浏览器信息</h2>
+        <div id="browser-info"></div>
+    </div>
+
+    <div id="recommendation"></div>
+
+    <script>
+        const basicTests = [
+            {
+                name: 'VideoDecoder API',
+                test: () => 'VideoDecoder' in window,
+                required: true
+            },
+            {
+                name: 'VideoEncoder API',
+                test: () => 'VideoEncoder' in window,
+                required: false
+            },
+            {
+                name: 'MediaSource Extensions',
+                test: () => 'MediaSource' in window,
+                required: false
+            },
+            {
+                name: 'Canvas 2D Context',
+                test: () => {
+                    const canvas = document.createElement('canvas')
+                    return !!canvas.getContext('2d')
+                },
+                required: true
+            }
+        ]
+
+        const codecTests = [
+            {
+                name: 'H.264 Baseline (avc1.42E01E)',
+                codec: 'avc1.42E01E',
+                description: '推荐用于直播'
+            },
+            {
+                name: 'H.264 Main (avc1.4D401E)',
+                codec: 'avc1.4D401E',
+                description: '平衡质量和性能'
+            },
+            {
+                name: 'H.264 High (avc1.64001F)',
+                codec: 'avc1.64001F',
+                description: '最高质量'
+            }
+        ]
+
+        function addTestResult(containerId, name, passed, required = false) {
+            const container = document.getElementById(containerId)
+            const div = document.createElement('div')
+            div.className = `test-item ${passed ? 'success' : (required ? 'error' : 'warning')}`
+            div.innerHTML = `
+                <span>${name}</span>
+                <span class="status ${passed ? 'success' : (required ? 'error' : 'warning')}">
+                    ${passed ? '✅ 支持' : (required ? '❌ 不支持' : '⚠️ 不支持')}
+                </span>
+            `
+            container.appendChild(div)
+            return passed
+        }
+
+        async function runTests() {
+            console.log('🔍 开始检测浏览器支持...')
+            
+            // 基础 API 测试
+            let allBasicPassed = true
+            for (const test of basicTests) {
+                const passed = test.test()
+                addTestResult('basic-tests', test.name, passed, test.required)
+                if (test.required && !passed) {
+                    allBasicPassed = false
+                }
+                console.log(`${test.name}: ${passed ? '✅' : '❌'}`)
+            }
+
+            // 编解码器测试
+            if ('VideoDecoder' in window) {
+                for (const test of codecTests) {
+                    try {
+                        const result = await VideoDecoder.isConfigSupported({
+                            codec: test.codec,
+                            optimizeForLatency: true
+                        })
+                        addTestResult('codec-tests', 
+                            `${test.name}<br><small style="color: #666;">${test.description}</small>`, 
+                            result.supported, 
+                            test.codec === 'avc1.42E01E')
+                        console.log(`${test.name}: ${result.supported ? '✅' : '❌'}`)
+                    } catch (e) {
+                        addTestResult('codec-tests', test.name, false, test.codec === 'avc1.42E01E')
+                        console.error(`${test.name}: ❌`, e)
+                    }
+                }
+            } else {
+                document.getElementById('codec-tests').innerHTML = 
+                    '<p style="color: #f44336;">⚠️ VideoDecoder API 不可用，无法测试编解码器支持</p>'
+            }
+
+            // 浏览器信息
+            const browserInfo = document.getElementById('browser-info')
+            browserInfo.innerHTML = `
+                <div class="test-item">
+                    <span>User Agent</span>
+                    <span style="font-size: 0.9em; color: #666;">${navigator.userAgent}</span>
+                </div>
+                <div class="test-item">
+                    <span>平台</span>
+                    <span>${navigator.platform}</span>
+                </div>
+                <div class="test-item">
+                    <span>语言</span>
+                    <span>${navigator.language}</span>
+                </div>
+            `
+
+            // 推荐方案
+            const recommendation = document.getElementById('recommendation')
+            if (allBasicPassed && 'VideoDecoder' in window) {
+                recommendation.innerHTML = `
+                    <div class="recommendation">
+                        <h3>✅ 推荐方案：WebCodecs API</h3>
+                        <p>您的浏览器完全支持 WebCodecs API！</p>
+                        <p><strong>优势：</strong></p>
+                        <ul>
+                            <li>硬件加速解码</li>
+                            <li>超低延迟（&lt;50ms）</li>
+                            <li>高性能</li>
+                        </ul>
+                        <p><strong>使用方法：</strong></p>
+                        <p>直接访问 <code>http://localhost:3000</code> 并点击"🔴 直通播放"按钮即可测试。</p>
+                    </div>
+                `
+            } else {
+                recommendation.innerHTML = `
+                    <div class="recommendation" style="background: #fff3e0; border-left-color: #ff9800;">
+                        <h3>⚠️ 推荐方案：Broadway.js 或服务端转码</h3>
+                        <p>您的浏览器不支持 WebCodecs API。</p>
+                        <p><strong>备选方案：</strong></p>
+                        <ul>
+                            <li><strong>Broadway.js</strong>：纯 JavaScript H.264 解码器（CPU 解码）</li>
+                            <li><strong>服务端转码</strong>：使用 FFmpeg 转码为 fMP4（最佳兼容性）</li>
+                        </ul>
+                        <p><strong>浏览器升级建议：</strong></p>
+                        <ul>
+                            <li>Chrome 94+ 或 Edge 94+</li>
+                            <li>Safari 16.4+</li>
+                        </ul>
+                    </div>
+                `
+            }
+        }
+
+        // 运行测试
+        runTests()
+    </script>
+</body>
+</html>

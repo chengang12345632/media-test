@@ -1,0 +1,221 @@
+import React, { useEffect, useRef, useState } from 'react'
+import { apiClient } from '../services/api'
+import H264Player from './H264Player'
+import WebCodecsPlayer from './WebCodecsPlayer'
+import './VideoPlayer.css'
+
+interface VideoPlayerProps {
+  sessionId: string
+  fileId?: string
+  isLiveMode?: boolean
+}
+
+function VideoPlayer({ sessionId, fileId, isLiveMode = false }: VideoPlayerProps) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [status, setStatus] = useState<string>('初始化中...')
+  const [error, setError] = useState<string | null>(null)
+  // 如果是live模式，直接初始化为sse模式
+  const [playbackMode, setPlaybackMode] = useState<'direct' | 'sse'>(isLiveMode ? 'sse' : 'direct')
+  const [fileInfo, setFileInfo] = useState<any>(null)
+
+  useEffect(() => {
+    console.log('VideoPlayer mounted', { sessionId, fileId, isLiveMode })
+    
+    // 直通播放模式 - 不在这里处理，由H264Player处理
+    if (isLiveMode) {
+      // playbackMode已经在useState中设置为'sse'
+      // 不需要在这里做任何事情，组件会返回H264Player
+      return
+    }
+    
+    // 检测文件类型，决定播放模式
+    if (fileId) {
+      detectPlaybackMode(fileId)
+    } else {
+      // 默认使用 SSE 模式
+      setPlaybackMode('sse')
+      startSSEPlayback()
+    }
+
+    return () => {
+      // 清理资源
+      if (videoRef.current) {
+        videoRef.current.pause()
+        videoRef.current.src = ''
+      }
+    }
+  }, [sessionId, fileId, isLiveMode])
+
+  const detectPlaybackMode = async (fileId: string) => {
+    // 检查文件扩展名
+    if (fileId.toLowerCase().endsWith('.mp4')) {
+      setPlaybackMode('direct')
+      startDirectPlayback(fileId)
+    } else if (fileId.toLowerCase().endsWith('.h264')) {
+      setPlaybackMode('sse')
+      // H.264 文件使用专用播放器
+    } else {
+      setPlaybackMode('direct')
+      startDirectPlayback(fileId)
+    }
+  }
+
+  const startDirectPlayback = (fileId: string) => {
+    setStatus('加载视频...')
+    
+    if (videoRef.current) {
+      // 直接使用 HTTP 流式传输（支持 Range 请求）
+      const streamUrl = `/api/v1/recordings/${encodeURIComponent(fileId)}/stream`
+      videoRef.current.src = streamUrl
+      
+      videoRef.current.onloadedmetadata = () => {
+        setStatus('视频已加载，可以播放')
+        console.log('Video metadata loaded:', {
+          duration: videoRef.current?.duration,
+          videoWidth: videoRef.current?.videoWidth,
+          videoHeight: videoRef.current?.videoHeight,
+        })
+      }
+
+      videoRef.current.oncanplay = () => {
+        setStatus('准备就绪')
+        // 自动播放
+        videoRef.current?.play().catch(err => {
+          console.error('Autoplay failed:', err)
+          setStatus('点击播放按钮开始')
+        })
+      }
+
+      videoRef.current.onerror = (e) => {
+        console.error('Video error:', e)
+        setError('视频加载失败，请检查文件格式')
+      }
+    }
+  }
+
+  const startSSEPlayback = () => {
+    setStatus('连接到服务器...')
+    
+    const eventSource = new EventSource(`/api/v1/playback/${sessionId}/segments`)
+    
+    eventSource.onopen = () => {
+      console.log('SSE connection opened')
+      setStatus('已连接，等待视频数据...')
+    }
+
+    let segmentCount = 0
+    let lastTimestamp = 0
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const segment = JSON.parse(event.data)
+        segmentCount++
+        lastTimestamp = segment.timestamp
+        
+        console.log('Received segment:', {
+          id: segment.segment_id,
+          timestamp: segment.timestamp,
+          size: segment.data_length,
+          isKeyframe: segment.flags & 0x01
+        })
+        
+        setStatus(`✅ 数据传输成功！已接收 ${segmentCount} 个分片 (${segment.timestamp.toFixed(2)}s)`)
+        
+        // TODO: 实现 MSE 播放
+        // 需要将 H.264 裸流转换为 fMP4 格式
+        // 可以使用 mux.js 或在服务端转换
+        
+      } catch (err) {
+        console.error('Error parsing segment:', err)
+      }
+    }
+    
+    eventSource.addEventListener('close', () => {
+      console.log('SSE stream closed')
+      setStatus(`✅ 传输完成！共接收 ${segmentCount} 个分片，总时长 ${lastTimestamp.toFixed(2)}s`)
+      setError('H.264 裸流需要转换为 fMP4 格式才能播放。请使用 MP4 文件或实现 H.264→fMP4 转换。')
+    })
+
+    eventSource.onerror = (err) => {
+      console.error('SSE error:', err)
+      setError('连接错误，请重试')
+      eventSource.close()
+    }
+  }
+
+  // 如果是直通播放模式，使用 WebCodecs 播放器
+  if (isLiveMode) {
+    return <WebCodecsPlayer sessionId={sessionId} />
+  }
+  
+  // 如果是 H.264 文件，使用 H264Player
+  if (playbackMode === 'sse' && fileId && fileId.toLowerCase().endsWith('.h264')) {
+    return <H264Player sessionId={sessionId} />
+  }
+
+  return (
+    <div className="video-player">
+      <div className="player-container">
+        <video
+          ref={videoRef}
+          className="video-element"
+          controls
+          playsInline
+        >
+          您的浏览器不支持视频播放
+        </video>
+        
+        {(status !== '准备就绪' || error) && (
+          <div className="player-overlay">
+            <div className="status-info">
+              <p className="status">{status}</p>
+              {error && <p className="error">{error}</p>}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="player-info">
+        <h3>播放会话: {sessionId.substring(0, 8)}...</h3>
+        <div className="info-row">
+          <span className="label">播放模式:</span>
+          <span className="value">
+            {playbackMode === 'direct' ? '🎬 直接流式传输 (MP4)' : '📡 SSE 实时流 (H.264)'}
+          </span>
+        </div>
+        {fileId && (
+          <div className="info-row">
+            <span className="label">文件:</span>
+            <span className="value">{fileId}</span>
+          </div>
+        )}
+        
+        {playbackMode === 'direct' && (
+          <p className="hint success">
+            ✅ MP4 文件可以直接播放，支持拖动进度条和快进快退
+          </p>
+        )}
+        
+        {playbackMode === 'sse' && (
+          <div>
+            <p className="hint warning">
+              ⚠️ H.264 裸流需要转换为 fMP4 格式才能播放
+            </p>
+            <p className="hint">
+              💡 建议：使用 MP4 格式的测试视频，或实现 H.264 到 fMP4 的转换
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="debug-console">
+        <h4>调试信息</h4>
+        <p>Session ID: {sessionId}</p>
+        <p>Playback Mode: {playbackMode}</p>
+        <p>打开浏览器控制台查看详细日志</p>
+      </div>
+    </div>
+  )
+}
+
+export default VideoPlayer
