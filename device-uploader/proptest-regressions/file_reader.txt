@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 98a60d2d23854771087bc316133d17026e21cb404b77af5bf0cda3f4f58b19ed # shrinks to h264_data = [0, 0, 0, 1, 103, 66, 0, 30, 154, 116, 5, 129, 236, 128, 0, 0, 0, 1, 103, 66, 0, 30, 154, 116, 5, 129, 236, 128, 0, 0, 0, 1, 103, 66, 0, 30, 154, 116, 5, 129, 236, 128], strategy = Full

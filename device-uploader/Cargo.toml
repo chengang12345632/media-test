@@ -1,0 +1,64 @@
+[package]
+name = "video-streaming-uploader"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+tokio-stream = "0.1"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+quinn = "0.10"
+rustls = { version = "0.21", features = ["dangerous_configuration"] }
+# FFmpeg integration via command line - no library dependency needed
+proptest = "1.0"
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
+rand = "0.8"
+log = "0.4"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = "4.0"
+rcgen = "0.12"
+# FFmpeg-based live encoding - no additional dependencies needed
+
+[dev-dependencies]
+proptest = "1.0"
+tokio-test = "0.4"
+tempfile = "3.0"
+
+[features]
+default = []
+
+[[bin]]
+name = "video-uploader"
+path = "src/main.rs"
+
+[[bin]]
+name = "mock-server"
+path = "src/bin/mock_server.rs"
+
+[[bin]]
+name = "client"
+path = "src/bin/client.rs"
+
+
+
+[[example]]
+name = "keyframe_index_demo"
+path = "examples/keyframe_index_demo.rs"
+
+[[example]]
+name = "enhanced_seek_demo"
+path = "examples/enhanced_seek_demo.rs"
+
+[[example]]
+name = "enhanced_seek_client_server_demo"
+path = "examples/enhanced_seek_client_server_demo.rs"
+
+[[example]]
+name = "ffmpeg_cli_demo"
+path = "examples/ffmpeg_cli_demo.rs"
