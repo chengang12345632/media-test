@@ -73,8 +73,14 @@ pub enum MessageType {
     PlaybackControl = 0x0C,
     FileListQuery = 0x0D,
     FileListResponse = 0x0E,
-    StartLiveStream = 0x10,  // 新增：启动直通播放
-    StopLiveStream = 0x11,   // 新增：停止直通播放
+    StartLiveStream = 0x10,  // 启动直通播放
+    StopLiveStream = 0x11,   // 停止直通播放
+    // 新增：高级播放控制命令
+    SeekToKeyframe = 0x12,   // 精确定位到关键帧
+    SetPlaybackSpeed = 0x13, // 设置播放速率
+    GetKeyframeIndex = 0x14, // 获取关键帧索引
+    SeekResponse = 0x15,     // Seek 操作响应
+    KeyframeIndexResponse = 0x16, // 关键帧索引响应
 }
 
 /// 设备信息

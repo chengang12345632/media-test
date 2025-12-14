@@ -27,6 +27,8 @@ common = { path = "../common" }
 
 # 视频处理
 walkdir = "2.4"
+async-trait = "0.1"
+sha2 = "0.10"
 
 # 屏幕捕获和编码（暂时注释以使用模拟数据）
 # scrap = "0.5"

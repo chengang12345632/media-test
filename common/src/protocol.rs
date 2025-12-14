@@ -88,3 +88,61 @@ pub struct StartLiveStreamRequest {
 pub struct StopLiveStreamRequest {
     pub reason: Option<String>,
 }
+
+/// 精确定位到关键帧请求
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeekToKeyframeRequest {
+    pub target_time: f64,
+    pub session_id: uuid::Uuid,
+}
+
+/// 精确定位到关键帧响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeekToKeyframeResponse {
+    pub requested_time: f64,
+    pub actual_time: f64,
+    pub keyframe_offset: u64,
+    pub precision_achieved: f64,
+    pub execution_time_ms: u64,
+    pub success: bool,
+    pub error_message: Option<String>,
+}
+
+/// 设置播放速率请求
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetPlaybackSpeedRequest {
+    pub speed: f32,
+    pub session_id: uuid::Uuid,
+}
+
+/// 设置播放速率响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetPlaybackSpeedResponse {
+    pub speed: f32,
+    pub success: bool,
+    pub error_message: Option<String>,
+}
+
+/// 获取关键帧索引请求
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetKeyframeIndexRequest {
+    pub file_path: String,
+}
+
+/// 关键帧条目（简化版，用于传输）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyframeEntry {
+    pub timestamp: f64,
+    pub file_offset: u64,
+    pub frame_size: u32,
+}
+
+/// 获取关键帧索引响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetKeyframeIndexResponse {
+    pub file_path: String,
+    pub keyframes: Vec<KeyframeEntry>,
+    pub total_duration: f64,
+    pub success: bool,
+    pub error_message: Option<String>,
+}
