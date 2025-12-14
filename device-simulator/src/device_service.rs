@@ -293,6 +293,8 @@ impl DeviceService {
         file_req: common::FileRequest,
         session_id: uuid::Uuid,
     ) -> Result<()> {
+        use crate::video::{LiveStreamGeneratorFile, VideoFileReader, VideoFormat};
+        
         info!("🎬 Starting playback for: {} (session: {})", file_req.file_path, session_id);
 
         // 从 file_id 中提取文件名（格式: device_001_filename）
@@ -311,46 +313,100 @@ impl DeviceService {
             return Err(VideoStreamError::RecordingNotFound(file_req.file_path));
         }
 
-        // 读取并发送视频数据
-        let mut reader = VideoFileReader::new(&file_path).await?;
-        let mut timestamp = file_req.seek_position.unwrap_or(0.0);
-        let mut segment_count = 0;
+        // 检测文件格式
+        let reader = VideoFileReader::new(&file_path).await?;
+        let is_h264 = matches!(reader.format(), VideoFormat::H264);
+        drop(reader);
 
-        info!("📤 Streaming file to platform...");
+        if is_h264 {
+            // H.264 文件：使用 LiveStreamGeneratorFile 按 NAL unit 分割
+            info!("📹 H.264 file detected, using NAL unit streaming");
+            
+            let mut generator = LiveStreamGeneratorFile::new(
+                session_id,
+                30, // 默认 30fps
+                5_000_000, // 默认 5Mbps
+                file_path,
+            ).map_err(|e| VideoStreamError::QuicError(format!("Failed to create generator: {}", e)))?;
+            
+            let mut receiver = generator.start_streaming().await
+                .map_err(|e| VideoStreamError::QuicError(format!("Failed to start streaming: {}", e)))?;
+            
+            info!("📤 Streaming H.264 file to platform...");
+            let mut segment_count = 0;
+            
+            while let Some(segment) = receiver.recv().await {
+                match connection.open_uni().await {
+                    Ok(mut stream) => {
+                        let data = bincode::serialize(&segment)
+                            .map_err(|e| VideoStreamError::BincodeError(e.to_string()))?;
+                        
+                        if let Err(e) = stream.write_all(&data).await {
+                            error!("Failed to write segment: {}", e);
+                            break;
+                        }
+                        
+                        if let Err(e) = stream.finish().await {
+                            error!("Failed to finish stream: {}", e);
+                            break;
+                        }
+                        
+                        segment_count += 1;
+                        if segment_count % 100 == 0 {
+                            info!("📦 Sent {} H.264 segments", segment_count);
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to open stream: {}", e);
+                        break;
+                    }
+                }
+            }
+            
+            info!("✓ H.264 playback completed: {} segments sent", segment_count);
+        } else {
+            // MP4 或其他格式：使用简单的块读取
+            info!("📹 MP4/other format detected, using chunk streaming");
+            
+            let mut reader = VideoFileReader::new(&file_path).await?;
+            let mut timestamp = file_req.seek_position.unwrap_or(0.0);
+            let mut segment_count = 0;
 
-        while let Some(chunk) = reader.read_chunk().await? {
-            let mut segment = VideoSegment::new(chunk.clone(), timestamp, segment_count % 30 == 0);
-            // 设置正确的 session_id，以便服务端能正确分发
-            segment.session_id = session_id;
+            info!("📤 Streaming file to platform...");
 
-            // 通过单向流发送分片
-            let mut stream = connection.open_uni().await.map_err(|e| {
-                VideoStreamError::QuicError(format!("Failed to open stream: {}", e))
-            })?;
+            while let Some(chunk) = reader.read_chunk().await? {
+                let mut segment = VideoSegment::new(chunk.clone(), timestamp, segment_count % 30 == 0);
+                segment.session_id = session_id;
 
-            let data = bincode::serialize(&segment)
-                .map_err(|e| VideoStreamError::BincodeError(e.to_string()))?;
+                let mut stream = connection.open_uni().await.map_err(|e| {
+                    VideoStreamError::QuicError(format!("Failed to open stream: {}", e))
+                })?;
 
-            stream
-                .write_all(&data)
-                .await
-                .map_err(|e| VideoStreamError::QuicError(e.to_string()))?;
-            stream
-                .finish()
-                .await
-                .map_err(|e| VideoStreamError::QuicError(e.to_string()))?;
+                let data = bincode::serialize(&segment)
+                    .map_err(|e| VideoStreamError::BincodeError(e.to_string()))?;
 
-            segment_count += 1;
-            timestamp += 0.033; // ~30fps
+                stream
+                    .write_all(&data)
+                    .await
+                    .map_err(|e| VideoStreamError::QuicError(e.to_string()))?;
+                stream
+                    .finish()
+                    .await
+                    .map_err(|e| VideoStreamError::QuicError(e.to_string()))?;
 
-            // 控制发送速率
-            tokio::time::sleep(tokio::time::Duration::from_millis(
-                (33.0 / file_req.playback_rate) as u64,
-            ))
-            .await;
+                segment_count += 1;
+                timestamp += 0.033; // ~30fps
+
+                // 控制发送速率
+                tokio::time::sleep(tokio::time::Duration::from_millis(
+                    (33.0 / file_req.playback_rate) as u64,
+                ))
+                .await;
+            }
+
+            info!("✓ Playback completed: {} segments sent", segment_count);
         }
-
-        info!("✓ Playback completed: {} segments sent", segment_count);
+        
         Ok(())
     }
     

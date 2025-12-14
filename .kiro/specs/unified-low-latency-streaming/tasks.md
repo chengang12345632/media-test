@@ -432,38 +432,64 @@
   - 调用播放控制API
   - _需求: 7.1, 7.2, 7.3, 7.4_
 
-- [ ] 8. 平台端：实现延迟监控
+- [x] 8. 平台端：实现延迟监控
   - 记录每个分片的端到端延迟
   - 实现延迟统计和告警
   - 提供性能统计API
   - _需求: 8.1, 8.2, 8.3, 8.4_
+  - **状态**: ✅ 完成（2025-12-14）
 
 - [x] 8.1 实现延迟记录
-
   - 在VideoSegment中添加receive_time字段
   - 在转发时记录forward_time
   - 计算processing_latency = forward_time - receive_time
   - _需求: 8.1_
+  - **状态**: ✅ 完成
 
-
-
-- [ ] 8.2 实现延迟统计
+- [x] 8.2 实现延迟统计
   - 维护延迟历史（VecDeque<Duration>）
   - 计算平均延迟、最小延迟、最大延迟
   - 计算P50、P95、P99延迟
   - _需求: 8.3, 8.4_
+  - **状态**: ✅ 完成
 
-- [ ]* 8.2.1 编写延迟统计单元测试
+- [x]* 8.2.1 编写延迟统计单元测试
   - 测试延迟计算的正确性
-
-
   - 测试统计指标的准确性
+  - **状态**: ✅ 完成（包含在latency模块测试中）
 
-- [ ] 8.3 实现延迟告警
+- [x] 8.3 实现延迟告警
   - 当延迟超过阈值时触发告警
   - 通过WebSocket推送告警到前端
   - 记录告警日志
   - _需求: 8.2_
+  - **状态**: ✅ 完成
+
+- [x] 8.4 集成延迟监控到UnifiedStreamHandler
+  - 在UnifiedStreamHandler中添加延迟监控字段
+  - 在流会话启动时开始监控
+  - 在接收和转发分片时记录时间戳
+  - 在停止流时清理监控数据
+  - 配置HTTP路由暴露延迟监控API
+  - 启动统计更新任务（每秒广播）
+  - _需求: 8.1, 8.2, 8.3, 8.4_
+  - **状态**: ✅ 完成（2025-12-14）
+  - **修改文件**:
+    - `platform-server/src/streaming/handler.rs`
+    - `platform-server/src/http3/routes.rs`
+    - `platform-server/src/http3/server.rs`
+    - `platform-server/src/main.rs`
+
+- [x] 8.5 前端延迟监控显示
+  - 创建LatencyMonitor组件
+  - 集成到UnifiedMSEPlayer和WebCodecsPlayer
+  - 实时显示延迟指标和告警
+  - 支持SSE连接和自动重连
+  - _需求: 8.3_
+  - **状态**: ✅ 完成
+  - **文件**:
+    - `web-frontend/src/components/LatencyMonitor.tsx`
+    - `web-frontend/src/components/LatencyMonitor.css`
 
 - [ ] 9. 集成测试：端到端流程验证
   - 测试直通播放完整流程

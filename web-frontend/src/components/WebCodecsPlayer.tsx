@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import LatencyMonitor from './LatencyMonitor'
 
 interface WebCodecsPlayerProps {
   sessionId: string
@@ -281,6 +282,9 @@ function WebCodecsPlayer({ sessionId }: WebCodecsPlayerProps) {
           </div>
         )}
       </div>
+
+      {/* 延迟监控组件 */}
+      <LatencyMonitor sessionId={sessionId} apiBaseUrl="http://localhost:8080" />
 
       <div className="player-info">
         <h3>🚀 WebCodecs 实时播放</h3>

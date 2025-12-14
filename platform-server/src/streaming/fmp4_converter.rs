@@ -9,7 +9,7 @@
 // - 保持时间戳和关键帧信息
 // - 支持MSE播放器
 
-use super::source::{SegmentFormat, StreamError, VideoSegment};
+use super::source::{SegmentFormat, SegmentSourceType, StreamError, VideoSegment};
 use bytes::{BufMut, BytesMut};
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -188,6 +188,7 @@ impl FMP4Converter {
             data: buffer.to_vec(),
             is_keyframe: segment.is_keyframe,
             format: SegmentFormat::FMP4,
+            source_type: segment.source_type,
             receive_time: segment.receive_time,
             forward_time: segment.forward_time,
         };
@@ -640,6 +641,9 @@ mod tests {
             data: vec![0, 0, 0, 1, 0x67, 0x42, 0x00, 0x1f], // 简化的H.264数据
             is_keyframe: true,
             format: SegmentFormat::H264Raw,
+            source_type: SegmentSourceType::Live,
+            receive_time: None,
+            forward_time: None,
         };
 
         let fmp4_segment = converter.convert_segment(h264_segment.clone()).unwrap();
@@ -663,6 +667,9 @@ mod tests {
             data: vec![0, 0, 0, 1, 0x67],
             is_keyframe: true,
             format: SegmentFormat::H264Raw,
+            source_type: SegmentSourceType::Live,
+            receive_time: None,
+            forward_time: None,
         };
 
         converter.convert_segment(h264_segment.clone()).unwrap();
@@ -683,6 +690,9 @@ mod tests {
             data: vec![1, 2, 3],
             is_keyframe: true,
             format: SegmentFormat::MP4,
+            source_type: SegmentSourceType::Playback,
+            receive_time: None,
+            forward_time: None,
         };
 
         let result = converter.convert_segment(mp4_segment);

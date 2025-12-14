@@ -48,13 +48,18 @@ function VideoPlayer({ sessionId, fileId, isLiveMode = false }: VideoPlayerProps
 
   const detectPlaybackMode = async (fileId: string) => {
     // 检查文件扩展名
-    if (fileId.toLowerCase().endsWith('.mp4')) {
+    const lowerFileId = fileId.toLowerCase()
+    
+    if (lowerFileId.endsWith('.mp4') || lowerFileId.includes('.mp4')) {
+      console.log('Detected MP4 file, using direct playback')
       setPlaybackMode('direct')
       startDirectPlayback(fileId)
-    } else if (fileId.toLowerCase().endsWith('.h264')) {
+    } else if (lowerFileId.endsWith('.h264') || lowerFileId.endsWith('.264') || lowerFileId.includes('.h264') || lowerFileId.includes('.264')) {
+      console.log('Detected H.264 file, using SSE playback')
       setPlaybackMode('sse')
-      // H.264 文件使用专用播放器
+      // H.264 文件使用专用播放器，不需要在这里启动 SSE
     } else {
+      console.log('Unknown file type, trying direct playback')
       setPlaybackMode('direct')
       startDirectPlayback(fileId)
     }
@@ -143,14 +148,14 @@ function VideoPlayer({ sessionId, fileId, isLiveMode = false }: VideoPlayerProps
     }
   }
 
-  // 如果是直通播放模式，使用 WebCodecs 播放器
+  // 如果是直通播放模式或 H.264 回放，使用 WebCodecs 播放器
   if (isLiveMode) {
     return <WebCodecsPlayer sessionId={sessionId} />
   }
   
-  // 如果是 H.264 文件，使用 H264Player
-  if (playbackMode === 'sse' && fileId && fileId.toLowerCase().endsWith('.h264')) {
-    return <H264Player sessionId={sessionId} />
+  // 如果是 H.264 文件回放，也使用 WebCodecs 播放器
+  if (playbackMode === 'sse' && fileId && (fileId.toLowerCase().endsWith('.h264') || fileId.toLowerCase().endsWith('.264') || fileId.toLowerCase().includes('.h264') || fileId.toLowerCase().includes('.264'))) {
+    return <WebCodecsPlayer sessionId={sessionId} />
   }
 
   return (

@@ -39,9 +39,9 @@ Start-Sleep -Seconds 3
 # Start device simulator
 Write-Host "[2/3] Starting device simulator..." -ForegroundColor Yellow
 $deviceJob = Start-Job -ScriptBlock {
-    Set-Location $using:PWD
+    Set-Location "$using:PWD\device-simulator"
     $env:RUST_LOG = "info"
-    & ".\target\debug\device-simulator.exe" --device-id device_001 --server-addr 127.0.0.1:8443
+    & "..\target\debug\device-simulator.exe" --device-id device_001 --server-addr 127.0.0.1:8443
 }
 Write-Host "Device simulator started (Job ID: $($deviceJob.Id))" -ForegroundColor Green
 Start-Sleep -Seconds 3

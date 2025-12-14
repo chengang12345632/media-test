@@ -19,6 +19,15 @@ pub enum SegmentFormat {
     MP4,
 }
 
+/// 分片来源类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SegmentSourceType {
+    /// 直通播放（来自设备）
+    Live,
+    /// 录像回放（来自文件）
+    Playback,
+}
+
 /// 视频分片数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VideoSegment {
@@ -34,6 +43,8 @@ pub struct VideoSegment {
     pub is_keyframe: bool,
     /// 分片格式
     pub format: SegmentFormat,
+    /// 分片来源类型
+    pub source_type: SegmentSourceType,
     /// 接收时间（用于延迟计算）
     #[serde(skip)]
     pub receive_time: Option<SystemTime>,
@@ -226,6 +237,7 @@ mod tests {
             data: vec![0u8; 1024],
             is_keyframe: true,
             format: SegmentFormat::FMP4,
+            source_type: SegmentSourceType::Live,
             receive_time: Some(SystemTime::now()),
             forward_time: None,
         };

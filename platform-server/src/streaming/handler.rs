@@ -10,7 +10,10 @@
 // - 延迟监控和统计
 // - 支持100+并发流会话
 
-use super::source::{StreamError, StreamInfo, StreamSource, VideoSegment};
+use super::source::{SegmentSourceType, StreamError, StreamInfo, StreamSource, VideoSegment};
+use crate::latency::{
+    AlertBroadcaster, EndToEndLatencyMonitor, LatencyStatisticsManager, LatencyThresholds,
+};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -218,15 +221,52 @@ impl StreamSession {
 pub struct UnifiedStreamHandler {
     /// 流会话映射
     sessions: Arc<DashMap<Uuid, Arc<tokio::sync::RwLock<StreamSession>>>>,
+    /// 端到端延迟监控器
+    latency_monitor: Arc<EndToEndLatencyMonitor>,
+    /// 延迟统计管理器
+    stats_manager: Arc<LatencyStatisticsManager>,
+    /// 告警广播器
+    alert_broadcaster: Arc<AlertBroadcaster>,
 }
 
 impl UnifiedStreamHandler {
     /// 创建新的统一流处理器
     pub fn new() -> Self {
         debug!("Creating UnifiedStreamHandler");
+        
+        let thresholds = LatencyThresholds {
+            transmission_ms: 100,
+            processing_ms: 50,
+            distribution_ms: 50,
+            end_to_end_ms: 200,
+        };
+        
         Self {
             sessions: Arc::new(DashMap::new()),
+            latency_monitor: Arc::new(EndToEndLatencyMonitor::new(thresholds)),
+            stats_manager: Arc::new(LatencyStatisticsManager::new()),
+            alert_broadcaster: Arc::new(AlertBroadcaster::with_defaults()),
         }
+    }
+    
+    /// 获取延迟监控器引用
+    pub fn get_latency_monitor(&self) -> Arc<EndToEndLatencyMonitor> {
+        Arc::clone(&self.latency_monitor)
+    }
+    
+    /// 获取统计管理器引用
+    pub fn get_stats_manager(&self) -> Arc<LatencyStatisticsManager> {
+        Arc::clone(&self.stats_manager)
+    }
+    
+    /// 获取告警广播器引用
+    pub fn get_alert_broadcaster(&self) -> Arc<AlertBroadcaster> {
+        Arc::clone(&self.alert_broadcaster)
+    }
+    
+    /// 获取所有活动会话ID
+    pub fn get_active_sessions(&self) -> Vec<Uuid> {
+        self.sessions.iter().map(|entry| *entry.key()).collect()
     }
 
     /// 启动流会话
@@ -275,6 +315,10 @@ impl UnifiedStreamHandler {
 
         let mut session = StreamSession::new(session_id, source, config);
         
+        // 启动延迟监控
+        self.stats_manager.start_session(session_id);
+        self.alert_broadcaster.broadcast_session_started(session_id);
+        
         // 启动转发任务
         let forward_task = self.start_forwarding_task(session_id, &mut session).await?;
         session.forward_task = Some(forward_task);
@@ -305,6 +349,11 @@ impl UnifiedStreamHandler {
         let stats = session.stats.clone();
         let sessions = self.sessions.clone();
         let latency_threshold = session.config.latency_alert_threshold_ms;
+        
+        // 克隆延迟监控组件
+        let latency_monitor = Arc::clone(&self.latency_monitor);
+        let stats_manager = Arc::clone(&self.stats_manager);
+        let alert_broadcaster = Arc::clone(&self.alert_broadcaster);
 
         let task = tokio::spawn(async move {
             debug!("Forwarding task started for session: {}", session_id);
@@ -314,8 +363,30 @@ impl UnifiedStreamHandler {
                 match source.next_segment().await {
                     Ok(Some(mut segment)) => {
                         // 记录接收时间（如果还没有记录）
-                        if segment.receive_time.is_none() {
-                            segment.receive_time = Some(SystemTime::now());
+                        let receive_time = if let Some(t) = segment.receive_time {
+                            t
+                        } else {
+                            let t = SystemTime::now();
+                            segment.receive_time = Some(t);
+                            t
+                        };
+                        
+                        // 根据分片来源类型记录延迟监控时间戳
+                        match segment.source_type {
+                            SegmentSourceType::Live => {
+                                // 直通播放：记录完整的延迟链路
+                                // 对于真实的直通播放，设备端应该在分片中携带真实的发送时间戳
+                                // 目前使用接收时间作为近似值
+                                let device_send_time = receive_time;
+                                latency_monitor.record_device_send(segment.segment_id, device_send_time);
+                                latency_monitor.record_platform_receive(segment.segment_id, receive_time);
+                            }
+                            SegmentSourceType::Playback => {
+                                // 回放：只记录平台内部延迟（从文件读取到转发）
+                                // receive_time 实际是文件读取时间
+                                latency_monitor.record_platform_receive(segment.segment_id, receive_time);
+                                // 不记录 device_send，因为回放没有真实的设备传输
+                            }
                         }
                         
                         let forward_start = SystemTime::now();
@@ -324,7 +395,11 @@ impl UnifiedStreamHandler {
                         let send_result = segment_sender.send(segment.clone());
                         
                         // 记录转发时间
-                        segment.forward_time = Some(SystemTime::now());
+                        let forward_time = SystemTime::now();
+                        segment.forward_time = Some(forward_time);
+                        
+                        // 记录平台端转发时间到延迟监控器
+                        latency_monitor.record_platform_forward(segment.segment_id, forward_time);
                         
                         // 计算处理延迟（从接收到转发）
                         let processing_latency_ms = if let Some(receive_time) = segment.receive_time {
@@ -344,12 +419,28 @@ impl UnifiedStreamHandler {
                             0.0
                         };
                         
-                        // 更新统计信息
+                        // 更新统计信息（旧的统计系统）
                         {
                             let mut stats_guard = stats.write().await;
                             stats_guard.total_segments += 1;
                             stats_guard.update_latency(processing_latency_ms);
                             stats_guard.update_throughput(segment.data.len() as u64);
+                        }
+                        
+                        // 更新延迟监控统计
+                        if let Ok(duration) = forward_time.duration_since(receive_time) {
+                            stats_manager.record_segment_latency(
+                                &session_id,
+                                duration,
+                                segment.data.len(),
+                            );
+                        }
+                        
+                        // 检查并广播延迟告警
+                        if let Some(alerts) = latency_monitor.get_alerts(&segment.segment_id) {
+                            for alert in alerts {
+                                alert_broadcaster.broadcast_latency_alert(session_id, alert);
+                            }
                         }
                         
                         // 如果处理延迟超过5ms，记录警告
@@ -467,6 +558,10 @@ impl UnifiedStreamHandler {
             if let Some(task) = &session.forward_task {
                 task.abort();
             }
+            
+            // 停止延迟监控
+            self.stats_manager.stop_session(&session_id);
+            self.alert_broadcaster.broadcast_session_ended(session_id);
             
             debug!("Stream session stopped: {}", session_id);
             Ok(())
@@ -730,6 +825,9 @@ mod tests {
                     data: vec![0u8; 1024],
                     is_keyframe: i % 30 == 0,
                     format: SegmentFormat::H264Raw,
+                    source_type: SegmentSourceType::Live,
+                    receive_time: None,
+                    forward_time: None,
                 })
                 .collect();
 

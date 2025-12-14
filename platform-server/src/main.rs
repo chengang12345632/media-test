@@ -57,6 +57,33 @@ async fn main() -> Result<()> {
 
     info!("✓ HTTP3 server listening on {}", http3_addr);
 
+    // 启动延迟监控统计更新任务
+    let stream_handler_for_stats = http3_server.get_stream_handler();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+        
+        loop {
+            interval.tick().await;
+            
+            // 获取所有活动会话
+            let sessions = stream_handler_for_stats.get_active_sessions();
+            
+            // 为每个会话广播统计更新
+            for session_id in sessions {
+                if let Some(statistics) = stream_handler_for_stats
+                    .get_stats_manager()
+                    .get_statistics(&session_id) 
+                {
+                    stream_handler_for_stats
+                        .get_alert_broadcaster()
+                        .broadcast_statistics_update(session_id, statistics);
+                }
+            }
+        }
+    });
+    
+    info!("✓ Latency monitoring statistics update task started");
+
     info!("✅ Platform server ready!");
 
     // 并发运行两个服务器

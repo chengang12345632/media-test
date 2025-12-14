@@ -10,7 +10,7 @@
 // - 精确定位，支持任意时间位置
 // - 零拷贝优化
 
-use super::source::{SegmentFormat, StreamError, VideoSegment};
+use super::source::{SegmentFormat, SegmentSourceType, StreamError, VideoSegment};
 use std::path::{Path, PathBuf};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -242,7 +242,8 @@ impl FileStreamReader {
             data: buffer,
             is_keyframe,
             format: self.config.format,
-            receive_time: None,
+            source_type: SegmentSourceType::Playback,
+            receive_time: Some(std::time::SystemTime::now()),
             forward_time: None,
         };
 

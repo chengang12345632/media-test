@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import './UnifiedMSEPlayer.css'
+import LatencyMonitor from './LatencyMonitor'
 
 interface UnifiedMSEPlayerProps {
   sessionId: string
@@ -912,6 +913,9 @@ function UnifiedMSEPlayer({
           </div>
         )}
       </div>
+
+      {/* 延迟监控组件 */}
+      <LatencyMonitor sessionId={sessionId} apiBaseUrl="http://localhost:8080" />
 
       <div className="player-info">
         <div className="info-header">

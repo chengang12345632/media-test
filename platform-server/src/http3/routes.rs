@@ -4,7 +4,7 @@ use crate::latency::LatencyMonitor;
 use crate::recording::RecordingManager;
 use crate::streaming::UnifiedStreamHandler;
 use axum::{
-    routing::{get, post, delete},
+    routing::{get, post, delete, put},
     Router,
 };
 use std::sync::Arc;
@@ -17,6 +17,34 @@ pub fn create_router(
     latency_monitor: LatencyMonitor,
     stream_handler: Arc<UnifiedStreamHandler>,
 ) -> Router {
+    // 创建延迟监控状态
+    let latency_state = (
+        stream_handler.get_latency_monitor(),
+        stream_handler.get_stats_manager(),
+        stream_handler.get_alert_broadcaster(),
+    );
+    
+    // 创建延迟监控路由（使用独立的状态）
+    let latency_routes = Router::new()
+        .route("/health", get(super::latency_handlers::latency_health_check))
+        .route("/statistics", get(super::latency_handlers::get_all_statistics))
+        .route(
+            "/sessions/:session_id/statistics",
+            get(super::latency_handlers::get_session_statistics),
+        )
+        .route(
+            "/segments/:segment_id/breakdown",
+            get(super::latency_handlers::get_segment_breakdown),
+        )
+        .route("/alerts", get(super::latency_handlers::subscribe_alerts))
+        .route(
+            "/sessions/:session_id/alerts",
+            get(super::latency_handlers::subscribe_session_alerts),
+        )
+        .route("/config", put(super::latency_handlers::update_latency_config))
+        .with_state(latency_state);
+    
+    // 主路由
     Router::new()
         // 设备管理
         .route("/api/v1/devices", get(super::handlers::get_devices))
@@ -75,7 +103,10 @@ pub fn create_router(
         // 健康检查
         .route("/health", get(super::handlers::health_check))
         
-        // 添加状态 - 使用嵌套路由来支持多个状态
+        // 嵌套延迟监控路由
+        .nest("/api/v1/latency", latency_routes)
+        
+        // 添加主状态
         .with_state((
             device_manager,
             recording_manager,

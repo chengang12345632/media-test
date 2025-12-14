@@ -10,7 +10,7 @@
 // - 零缓冲转发，最低延迟
 
 use super::source::{
-    SegmentFormat, StreamError, StreamInfo, StreamMode, StreamSource, StreamState,
+    SegmentFormat, SegmentSourceType, StreamError, StreamInfo, StreamMode, StreamSource, StreamState,
 };
 use super::source::VideoSegment as SourceVideoSegment;
 use async_trait::async_trait;
@@ -183,6 +183,7 @@ impl StreamSource for LiveStreamSource {
                     data: common_segment.data,
                     is_keyframe: common_segment.flags & 0x01 != 0,
                     format: SegmentFormat::H264Raw,
+                    source_type: SegmentSourceType::Live,
                     receive_time: Some(std::time::SystemTime::now()),
                     forward_time: None,
                 };
@@ -317,6 +318,9 @@ mod tests {
             data: vec![0u8; 1024],
             is_keyframe: false,
             format: SegmentFormat::H264Raw,
+            source_type: SegmentSourceType::Live,
+            receive_time: None,
+            forward_time: None,
         }
     }
 

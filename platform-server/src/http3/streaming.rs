@@ -30,11 +30,23 @@ pub async fn stream_recording_file(
     
     // 获取设备连接以查询文件路径
     // 简化实现：直接从 test-videos 目录读取
-    let file_path = std::path::PathBuf::from("../device-simulator/test-videos").join(file_name);
-
-    if !file_path.exists() {
-        return Err(StatusCode::NOT_FOUND);
-    }
+    // 尝试多个可能的路径
+    let possible_paths = vec![
+        std::path::PathBuf::from("device-simulator/test-videos").join(file_name),
+        std::path::PathBuf::from("../device-simulator/test-videos").join(file_name),
+        std::path::PathBuf::from("./test-videos").join(file_name),
+    ];
+    
+    let file_path = possible_paths
+        .iter()
+        .find(|p| p.exists())
+        .ok_or_else(|| {
+            tracing::error!("File not found in any path: {}", file_name);
+            tracing::error!("Tried paths: {:?}", possible_paths);
+            StatusCode::NOT_FOUND
+        })?;
+    
+    tracing::info!("Found file at: {:?}", file_path);
 
     // 获取文件元数据
     let metadata = tokio::fs::metadata(&file_path)
@@ -83,6 +95,16 @@ fn parse_range(range_str: &str, file_size: u64) -> Option<(u64, u64)> {
     Some((start, end))
 }
 
+/// 获取文件的 Content-Type
+fn get_content_type(file_path: &std::path::Path) -> &'static str {
+    match file_path.extension().and_then(|s| s.to_str()) {
+        Some("mp4") => "video/mp4",
+        Some("h264") | Some("264") => "video/h264",
+        Some("webm") => "video/webm",
+        _ => "application/octet-stream",
+    }
+}
+
 /// 返回部分内容（206 Partial Content）
 async fn serve_range(
     file_path: &std::path::Path,
@@ -107,9 +129,11 @@ async fn serve_range(
     let stream = ReaderStream::new(limited_reader);
     let body = Body::from_stream(stream);
 
+    let content_type = get_content_type(file_path);
+
     let response = Response::builder()
         .status(StatusCode::PARTIAL_CONTENT)
-        .header(header::CONTENT_TYPE, "video/mp4")
+        .header(header::CONTENT_TYPE, content_type)
         .header(header::CONTENT_LENGTH, content_length)
         .header(
             header::CONTENT_RANGE,
@@ -134,9 +158,11 @@ async fn serve_full_file(
     let stream = ReaderStream::new(file);
     let body = Body::from_stream(stream);
 
+    let content_type = get_content_type(file_path);
+
     let response = Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "video/mp4")
+        .header(header::CONTENT_TYPE, content_type)
         .header(header::CONTENT_LENGTH, file_size)
         .header(header::ACCEPT_RANGES, "bytes")
         .body(body)

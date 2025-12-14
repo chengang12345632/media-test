@@ -166,7 +166,7 @@ fn create_sse_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::streaming::source::{SegmentFormat, StreamConfig};
+    use crate::streaming::source::{SegmentFormat, SegmentSourceType, StreamConfig};
     use crate::streaming::handler::tests::TestSource;
 
     #[tokio::test]
@@ -178,6 +178,9 @@ mod tests {
             data: vec![1, 2, 3, 4, 5],
             is_keyframe: true,
             format: SegmentFormat::H264Raw,
+            source_type: SegmentSourceType::Live,
+            receive_time: None,
+            forward_time: None,
         };
 
         let sse_data = SseSegmentData::from(segment.clone());

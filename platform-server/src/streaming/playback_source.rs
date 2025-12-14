@@ -10,10 +10,11 @@
 // - 速率控制支持0.25x-4x倍速
 
 use super::source::{
-    SegmentFormat, StreamError, StreamInfo, StreamMode, StreamSource, StreamState, VideoSegment,
+    SegmentFormat, SegmentSourceType, StreamError, StreamInfo, StreamMode, StreamSource, StreamState, VideoSegment,
 };
 use async_trait::async_trait;
 use std::path::PathBuf;
+use std::time::SystemTime;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tracing::{debug, warn};
@@ -97,7 +98,8 @@ impl SimpleFileReader {
             data: buffer,
             is_keyframe: false,
             format: SegmentFormat::MP4,
-            receive_time: None,
+            source_type: SegmentSourceType::Playback,
+            receive_time: Some(SystemTime::now()), // 设置读取时间
             forward_time: None,
         }))
     }

@@ -197,6 +197,7 @@ function H264Player({ sessionId }: H264PlayerProps) {
     }
 
     let hasReceivedSPS = false
+    let hasReceivedFirstGOP = false
     
     eventSource.onmessage = (event) => {
       try {
@@ -215,7 +216,6 @@ function H264Player({ sessionId }: H264PlayerProps) {
         
         // 如果还没收到SPS，跳过这个分片
         if (!hasReceivedSPS) {
-          console.log(`⏭️ Skipping segment #${count} (waiting for SPS)`)
           return
         }
         

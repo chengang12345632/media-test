@@ -30,9 +30,9 @@ $platformProcess = Start-Process powershell -ArgumentList "-NoExit", "-Command",
 Write-Host "Platform server started (PID: $($platformProcess.Id))" -ForegroundColor Green
 Start-Sleep -Seconds 3
 
-# Start device simulator in new window
+# Start device simulator in new window (run from device-simulator directory to find test-videos)
 Write-Host "[2/3] Starting device simulator..." -ForegroundColor Yellow
-$deviceProcess = Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PWD'; `$env:RUST_LOG='info'; .\target\debug\device-simulator.exe --device-id device_001 --server-addr 127.0.0.1:8443" -PassThru
+$deviceProcess = Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$PWD\device-simulator'; `$env:RUST_LOG='info'; ..\target\debug\device-simulator.exe --device-id device_001 --server-addr 127.0.0.1:8443" -PassThru
 Write-Host "Device simulator started (PID: $($deviceProcess.Id))" -ForegroundColor Green
 Start-Sleep -Seconds 3
 
