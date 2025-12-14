@@ -77,6 +77,34 @@
 
 ### 一键启动
 
+#### Windows 系统
+
+```powershell
+# 1. 克隆项目
+git clone https://github.com/your-org/video-streaming-demo.git
+cd video-streaming-demo
+
+# 2. 准备测试视频
+cd device-simulator
+mkdir test-videos
+# 将测试视频文件放入 test-videos 目录
+cd ..
+
+# 3. 启动所有服务（Debug 模式，自动编译）
+.\start-debug.ps1
+
+# 或使用 Release 模式（性能优化）
+.\start-release.ps1
+
+# 4. 访问前端
+# 浏览器打开 http://localhost:5173
+
+# 5. 停止所有服务
+.\stop-all.ps1
+```
+
+#### Linux/macOS 系统
+
 ```bash
 # 1. 克隆项目
 git clone https://github.com/your-org/video-streaming-demo.git
@@ -86,20 +114,54 @@ cd video-streaming-demo
 cd device-simulator
 mkdir -p test-videos
 # 将测试视频文件放入 test-videos 目录
+cd ..
 
-# 3. 编译项目（首次运行）
-./quick-test-setup.sh  # Linux/macOS
-powershell -ExecutionPolicy Bypass -File .\quick-test-setup.ps1  # Windows
+# 3. 设置脚本执行权限
+chmod +x *.sh
 
-# 4. 启动所有服务
-./start-all-simple.sh  # Linux/macOS
-powershell -ExecutionPolicy Bypass -File .\start-all-simple.ps1  # Windows
+# 4. 启动所有服务（Debug 模式，自动编译）
+./start-debug.sh
+
+# 或使用 Release 模式（性能优化）
+./start-release.sh
 
 # 5. 访问前端
 # 浏览器打开 http://localhost:5173
+
+# 6. 停止所有服务
+./stop-all.sh
 ```
 
-**详细步骤**: 查看 [快速开始指南](./docs/快速开始指南.md)（15分钟完成）
+### 启动脚本说明
+
+| 脚本 | Windows | Linux/macOS | 说明 |
+|------|---------|-------------|------|
+| Debug 模式启动 | `start-debug.ps1` | `start-debug.sh` | 开发模式，编译快速，包含调试信息 |
+| Release 模式启动 | `start-release.ps1` | `start-release.sh` | 生产模式，性能优化，编译较慢 |
+| 单独启动设备 | `start-device.ps1` | `start-device.sh` | 启动单个设备模拟器（随机生成设备信息） |
+| 停止所有服务 | `stop-all.ps1` | `stop-all.sh` | 停止所有运行中的服务 |
+
+### 高级用法
+
+```bash
+# 跳过编译直接启动（适合快速重启）
+.\start-debug.ps1 -SkipBuild          # Windows
+./start-debug.sh --skip-build         # Linux/macOS
+
+# 启动随机设备（自动生成设备ID）
+.\start-device.ps1                    # Windows
+./start-device.sh                     # Linux/macOS
+
+# 启动指定设备
+.\start-device.ps1 -DeviceId "camera_001"                    # Windows
+./start-device.sh --device-id "camera_001"                   # Linux/macOS
+
+# Release 模式启动设备
+.\start-device.ps1 -Release           # Windows
+./start-device.sh --release           # Linux/macOS
+```
+
+**详细步骤**: 查看 [SCRIPTS-README.md](./SCRIPTS-README.md) 或 [快速开始指南](./docs/快速开始指南.md)（15分钟完成）
 
 ---
 
@@ -236,14 +298,15 @@ rustup component add rustfmt clippy rust-analyzer
 # 安装Node.js依赖
 cd web-frontend
 npm install
+cd ..
 
-# 编译项目
-powershell -ExecutionPolicy Bypass -File .\quick-test-setup.ps1  # Windows
-./quick-test-setup.sh   # Linux/macOS
+# 编译并启动项目
+.\start-debug.ps1        # Windows
+./start-debug.sh         # Linux/macOS
 
 # 运行测试
 cargo test --all
-npm test
+cd web-frontend && npm test
 ```
 
 ### 代码规范
@@ -296,11 +359,15 @@ npm test
 
 ```bash
 # 启动所有服务
-powershell -ExecutionPolicy Bypass -File .\start-all-simple.ps1  # Windows
-./start-all-simple.sh   # Linux/macOS
+.\start-debug.ps1        # Windows
+./start-debug.sh         # Linux/macOS
 
 # 运行集成测试
 cargo test --test integration_tests
+
+# 停止服务
+.\stop-all.ps1           # Windows
+./stop-all.sh            # Linux/macOS
 ```
 
 ### 性能测试

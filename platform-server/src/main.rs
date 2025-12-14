@@ -16,7 +16,7 @@ use tracing_subscriber;
 async fn main() -> Result<()> {
     // 初始化日志
     tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
+        .with_max_level(Level::INFO)
         .with_target(false)
         .init();
 
