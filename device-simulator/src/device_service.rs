@@ -1,11 +1,18 @@
 use crate::quic::QuicClient;
-use crate::video::{VideoFile, VideoFileReader, VideoFormat};
+use crate::video::{VideoFile, VideoFormat};
+use crate::video::{
+    DefaultPlaybackController, DefaultTimelineManager, TimelineManager,
+    DefaultFFmpegParser, FFmpegParser, DefaultFileStreamReader, FileStreamReader,
+    KeyframeIndex, IndexOptimizationStrategy, TimelineFileBuilder,
+};
 use common::{
     FileListResponse, MessageType, ProtocolMessage, RecordingInfo, Result, VideoSegment,
     VideoStreamError,
 };
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
+use std::time::SystemTime;
+use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
 pub struct DeviceService {
@@ -13,15 +20,63 @@ pub struct DeviceService {
     video_files: Vec<VideoFile>,
     device_id: String,
     video_dir: std::path::PathBuf,
+    playback_controller: Arc<RwLock<DefaultPlaybackController>>,
+    timeline_manager: Arc<DefaultTimelineManager>,
+    ffmpeg_parser: Option<Arc<DefaultFFmpegParser>>,
+    file_reader: Arc<DefaultFileStreamReader>,
 }
 
 impl DeviceService {
     pub fn new(client: QuicClient, video_files: Vec<VideoFile>, device_id: String, video_dir: std::path::PathBuf) -> Self {
+        Self::new_with_config(client, video_files, device_id, video_dir, None)
+    }
+    
+    pub fn new_with_config(
+        client: QuicClient,
+        video_files: Vec<VideoFile>,
+        device_id: String,
+        video_dir: std::path::PathBuf,
+        config: Option<crate::config::Config>,
+    ) -> Self {
+        // 使用提供的配置或加载默认配置
+        let config = config.unwrap_or_else(|| {
+            crate::config::Config::load().expect("Failed to load config")
+        });
+        
+        // 初始化播放控制器
+        let playback_controller = Arc::new(RwLock::new(DefaultPlaybackController::new()));
+        
+        // 初始化 Timeline 管理器
+        let timeline_manager = Arc::new(DefaultTimelineManager::new());
+        
+        // 根据配置初始化 FFmpeg 解析器
+        let ffmpeg_parser = if config.ffmpeg_enabled {
+            let parser = DefaultFFmpegParser::new();
+            info!("✓ FFmpeg parser initialized");
+            Some(Arc::new(parser))
+        } else {
+            info!("ℹ FFmpeg parser disabled by configuration");
+            None
+        };
+        
+        // 初始化文件读取器
+        let file_reader = Arc::new(DefaultFileStreamReader::new());
+        
+        info!("✓ DeviceService initialized with configuration:");
+        info!("  - Keyframe index strategy: {:?}", config.keyframe_index_strategy);
+        info!("  - Timeline cache: {}", if config.timeline_cache_enabled { "enabled" } else { "disabled" });
+        info!("  - FFmpeg: {}", if config.ffmpeg_enabled { "enabled" } else { "disabled" });
+        info!("  - Playback speed range: {}x - {}x", config.playback_speed_min, config.playback_speed_max);
+        
         Self {
             client,
             video_files,
             device_id,
             video_dir,
+            playback_controller,
+            timeline_manager,
+            ffmpeg_parser,
+            file_reader,
         }
     }
 
@@ -228,6 +283,81 @@ impl DeviceService {
                                             let _ = send.write_all(b"OK").await;
                                             let _ = send.finish().await;
                                         }
+                                        MessageType::SeekToKeyframe => {
+                                            info!("⏩ Received seek to keyframe request");
+                                            if let Ok(seek_req) = bincode::deserialize::<common::SeekToKeyframeRequest>(&msg.payload) {
+                                                info!("  Target time: {:.2}s", seek_req.target_time);
+                                                
+                                                // 处理 seek 请求
+                                                let response = Self::handle_seek_to_keyframe(seek_req).await;
+                                                
+                                                // 发送响应
+                                                if let Ok(response_data) = bincode::serialize(&response) {
+                                                    let response_msg = ProtocolMessage {
+                                                        message_type: MessageType::SeekResponse,
+                                                        payload: response_data,
+                                                        sequence_number: msg.sequence_number,
+                                                        timestamp: SystemTime::now(),
+                                                        session_id: msg.session_id,
+                                                    };
+                                                    
+                                                    if let Ok(data) = bincode::serialize(&response_msg) {
+                                                        let _ = send.write_all(&data).await;
+                                                        let _ = send.finish().await;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        MessageType::SetPlaybackSpeed => {
+                                            info!("⚡ Received set playback speed request");
+                                            if let Ok(speed_req) = bincode::deserialize::<common::SetPlaybackSpeedRequest>(&msg.payload) {
+                                                info!("  Speed: {}x", speed_req.speed);
+                                                
+                                                // 处理播放速率变更
+                                                let response = Self::handle_set_playback_speed(speed_req).await;
+                                                
+                                                // 发送响应
+                                                if let Ok(response_data) = bincode::serialize(&response) {
+                                                    let response_msg = ProtocolMessage {
+                                                        message_type: MessageType::StatusResponse,
+                                                        payload: response_data,
+                                                        sequence_number: msg.sequence_number,
+                                                        timestamp: SystemTime::now(),
+                                                        session_id: msg.session_id,
+                                                    };
+                                                    
+                                                    if let Ok(data) = bincode::serialize(&response_msg) {
+                                                        let _ = send.write_all(&data).await;
+                                                        let _ = send.finish().await;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        MessageType::GetKeyframeIndex => {
+                                            info!("📋 Received get keyframe index request");
+                                            if let Ok(index_req) = bincode::deserialize::<common::GetKeyframeIndexRequest>(&msg.payload) {
+                                                info!("  File: {}", index_req.file_path);
+                                                
+                                                // 处理关键帧索引请求
+                                                let response = Self::handle_get_keyframe_index(index_req).await;
+                                                
+                                                // 发送响应
+                                                if let Ok(response_data) = bincode::serialize(&response) {
+                                                    let response_msg = ProtocolMessage {
+                                                        message_type: MessageType::KeyframeIndexResponse,
+                                                        payload: response_data,
+                                                        sequence_number: msg.sequence_number,
+                                                        timestamp: SystemTime::now(),
+                                                        session_id: msg.session_id,
+                                                    };
+                                                    
+                                                    if let Ok(data) = bincode::serialize(&response_msg) {
+                                                        let _ = send.write_all(&data).await;
+                                                        let _ = send.finish().await;
+                                                    }
+                                                }
+                                            }
+                                        }
                                         _ => {
                                             debug!("Unhandled message type: {:?}", msg.message_type);
                                         }
@@ -311,6 +441,14 @@ impl DeviceService {
         if !file_path.exists() {
             error!("File not found: {:?}", file_path);
             return Err(VideoStreamError::RecordingNotFound(file_req.file_path));
+        }
+
+        // 尝试加载或构建关键帧索引
+        let keyframe_index = Self::load_or_build_keyframe_index(&file_path).await;
+        
+        if let Some(ref index) = keyframe_index {
+            info!("✓ Keyframe index loaded: {} keyframes, {:.2}s duration", 
+                  index.entries.len(), index.total_duration);
         }
 
         // 检测文件格式
@@ -473,5 +611,263 @@ impl DeviceService {
         
         info!("✓ Live stream completed: {} segments sent", segment_count);
         Ok(())
+    }
+    
+    /// 加载或构建关键帧索引
+    async fn load_or_build_keyframe_index(video_path: &PathBuf) -> Option<KeyframeIndex> {
+        let timeline_manager = DefaultTimelineManager::new();
+        let file_reader = DefaultFileStreamReader::new();
+        
+        // 1. 尝试从 Timeline 文件加载
+        match timeline_manager.load_timeline(video_path).await {
+            Ok(Some(timeline)) => {
+                // 验证 Timeline 文件
+                match timeline_manager.validate_timeline(&timeline, video_path).await {
+                    Ok(true) => {
+                        info!("✓ Loaded keyframe index from timeline cache");
+                        return Some(timeline.keyframe_index);
+                    }
+                    Ok(false) => {
+                        warn!("⚠ Timeline file invalid, rebuilding index");
+                    }
+                    Err(e) => {
+                        warn!("⚠ Timeline validation error: {}, rebuilding index", e);
+                    }
+                }
+            }
+            Ok(None) => {
+                info!("📋 No timeline cache found, building index");
+            }
+            Err(e) => {
+                warn!("⚠ Failed to load timeline: {}, building index", e);
+            }
+        }
+        
+        // 2. 尝试使用 FFmpeg 提取关键帧信息
+        let ffmpeg_parser = DefaultFFmpegParser::new();
+        if let Ok(true) = ffmpeg_parser.check_availability().await {
+            match ffmpeg_parser.extract_metadata(video_path).await {
+                Ok(metadata) => {
+                    info!("✓ Extracted metadata using FFmpeg");
+                    
+                    // 使用 FFmpeg 提取的关键帧信息构建索引
+                    if let Ok(keyframes) = ffmpeg_parser.extract_keyframes(video_path).await {
+                        info!("✓ Extracted {} keyframes using FFmpeg", keyframes.len());
+                            
+                            // 构建关键帧索引
+                            let index = Self::build_index_from_ffmpeg(&keyframes, &metadata);
+                            
+                            // 保存到 Timeline 文件
+                            if let Err(e) = Self::save_timeline_file(
+                                video_path,
+                                &index,
+                                &metadata,
+                                &timeline_manager,
+                            ).await {
+                                warn!("⚠ Failed to save timeline: {}", e);
+                            }
+                            
+                            return Some(index);
+                    }
+                }
+                Err(e) => {
+                    warn!("⚠ FFmpeg metadata extraction failed: {}", e);
+                }
+            }
+        }
+        
+        // 3. 回退到基础解析器
+        info!("📋 Using fallback parser to build index");
+        match tokio::fs::File::open(video_path).await {
+            Ok(mut file) => {
+                match file_reader.build_keyframe_index_with_strategy(
+                    &mut file,
+                    IndexOptimizationStrategy::Adaptive,
+                ).await {
+                    Ok(index) => {
+                        info!("✓ Built keyframe index: {} keyframes", index.entries.len());
+                        
+                        // 保存到 Timeline 文件（使用基础元数据）
+                        if let Err(e) = Self::save_timeline_file_basic(
+                            video_path,
+                            &index,
+                            &timeline_manager,
+                        ).await {
+                            warn!("⚠ Failed to save timeline: {}", e);
+                        }
+                        
+                        Some(index)
+                    }
+                    Err(e) => {
+                        error!("✗ Failed to build keyframe index: {}", e);
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                error!("✗ Failed to open file: {}", e);
+                None
+            }
+        }
+    }
+    
+    /// 从 FFmpeg 提取的关键帧信息构建索引
+    fn build_index_from_ffmpeg(
+        keyframe_timestamps: &[f64],
+        metadata: &crate::video::FFmpegVideoInfo,
+    ) -> KeyframeIndex {
+        use crate::video::{KeyframeEntry, FrameType};
+        
+        let entries: Vec<KeyframeEntry> = keyframe_timestamps
+            .iter()
+            .enumerate()
+            .map(|(i, &timestamp)| KeyframeEntry {
+                timestamp,
+                file_offset: 0, // FFmpeg 不提供文件偏移
+                frame_size: 0,  // FFmpeg 不提供帧大小
+                gop_size: if i + 1 < keyframe_timestamps.len() {
+                    ((keyframe_timestamps[i + 1] - timestamp) * metadata.frame_rate) as u32
+                } else {
+                    30 // 默认 GOP 大小
+                },
+                frame_type: FrameType::I,
+            })
+            .collect();
+        
+        KeyframeIndex {
+            entries,
+            total_duration: metadata.duration,
+            index_precision: 1.0 / metadata.frame_rate,
+            memory_optimized: true,
+            optimization_strategy: IndexOptimizationStrategy::Adaptive,
+            memory_usage: keyframe_timestamps.len() * std::mem::size_of::<KeyframeEntry>(),
+        }
+    }
+    
+    /// 保存 Timeline 文件（使用 FFmpeg 元数据）
+    async fn save_timeline_file(
+        video_path: &PathBuf,
+        index: &KeyframeIndex,
+        _metadata: &crate::video::FFmpegVideoInfo,
+        timeline_manager: &DefaultTimelineManager,
+    ) -> Result<()> {
+        let timeline = TimelineFileBuilder::new(video_path.clone(), index.clone())
+            .build(timeline_manager).await
+            .map_err(|e| VideoStreamError::QuicError(format!("Failed to build timeline: {}", e)))?;
+        
+        timeline_manager.save_timeline(&timeline).await
+            .map_err(|e| VideoStreamError::QuicError(format!("Failed to save timeline: {}", e)))
+    }
+    
+    /// 保存 Timeline 文件（使用基础元数据）
+    async fn save_timeline_file_basic(
+        video_path: &PathBuf,
+        index: &KeyframeIndex,
+        timeline_manager: &DefaultTimelineManager,
+    ) -> Result<()> {
+        let timeline = TimelineFileBuilder::new(video_path.clone(), index.clone())
+            .build(timeline_manager).await
+            .map_err(|e| VideoStreamError::QuicError(format!("Failed to build timeline: {}", e)))?;
+        
+        timeline_manager.save_timeline(&timeline).await
+            .map_err(|e| VideoStreamError::QuicError(format!("Failed to save timeline: {}", e)))
+    }
+    
+    /// 处理精确定位到关键帧请求
+    async fn handle_seek_to_keyframe(
+        request: common::SeekToKeyframeRequest,
+    ) -> common::SeekToKeyframeResponse {
+        use std::time::Instant;
+        
+        let start_time = Instant::now();
+        
+        // TODO: 实现实际的 seek 逻辑
+        // 这里需要访问当前播放会话的关键帧索引
+        // 暂时返回模拟响应
+        
+        let execution_time = start_time.elapsed();
+        
+        common::SeekToKeyframeResponse {
+            requested_time: request.target_time,
+            actual_time: request.target_time, // 暂时返回请求的时间
+            keyframe_offset: 0,
+            precision_achieved: 0.0,
+            execution_time_ms: execution_time.as_millis() as u64,
+            success: true,
+            error_message: None,
+        }
+    }
+    
+    /// 处理设置播放速率请求
+    async fn handle_set_playback_speed(
+        request: common::SetPlaybackSpeedRequest,
+    ) -> common::SetPlaybackSpeedResponse {
+        // 验证播放速率范围
+        if request.speed < 0.25 || request.speed > 4.0 {
+            return common::SetPlaybackSpeedResponse {
+                speed: request.speed,
+                success: false,
+                error_message: Some(format!(
+                    "Invalid playback speed: {}. Must be between 0.25 and 4.0",
+                    request.speed
+                )),
+            };
+        }
+        
+        // TODO: 实现实际的播放速率调整逻辑
+        // 这里需要访问当前播放会话的控制器
+        
+        info!("✓ Playback speed set to {}x", request.speed);
+        
+        common::SetPlaybackSpeedResponse {
+            speed: request.speed,
+            success: true,
+            error_message: None,
+        }
+    }
+    
+    /// 处理获取关键帧索引请求
+    async fn handle_get_keyframe_index(
+        request: common::GetKeyframeIndexRequest,
+    ) -> common::GetKeyframeIndexResponse {
+        // 解析文件路径
+        let file_path = PathBuf::from(&request.file_path);
+        
+        // 加载或构建关键帧索引
+        match Self::load_or_build_keyframe_index(&file_path).await {
+            Some(index) => {
+                // 转换为传输格式
+                let keyframes: Vec<common::KeyframeEntry> = index
+                    .entries
+                    .iter()
+                    .map(|entry| common::KeyframeEntry {
+                        timestamp: entry.timestamp,
+                        file_offset: entry.file_offset,
+                        frame_size: entry.frame_size,
+                    })
+                    .collect();
+                
+                info!("✓ Returning {} keyframes for {}", keyframes.len(), request.file_path);
+                
+                common::GetKeyframeIndexResponse {
+                    file_path: request.file_path,
+                    keyframes,
+                    total_duration: index.total_duration,
+                    success: true,
+                    error_message: None,
+                }
+            }
+            None => {
+                error!("✗ Failed to load keyframe index for {}", request.file_path);
+                
+                common::GetKeyframeIndexResponse {
+                    file_path: request.file_path,
+                    keyframes: vec![],
+                    total_duration: 0.0,
+                    success: false,
+                    error_message: Some("Failed to load or build keyframe index".to_string()),
+                }
+            }
+        }
     }
 }

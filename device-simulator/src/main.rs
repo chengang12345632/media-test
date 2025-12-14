@@ -20,11 +20,14 @@ async fn main() -> Result<()> {
 
     info!("🎥 Device simulator starting...");
 
-    // 加载配置
-    let config = config::Config::load()?;
-    info!("✓ Configuration loaded");
-    info!("  Device ID: {}", config.device_id);
-    info!("  Device Name: {}", config.device_name);
+    // 加载配置（优先从环境变量）
+    let config = config::Config::from_env().unwrap_or_else(|e| {
+        info!("⚠️  Failed to load config from env: {}, using defaults", e);
+        config::Config::load().expect("Failed to load default config")
+    });
+    
+    // 打印配置信息
+    config.print_info();
 
     // 连接到平台
     info!("Connecting to platform: {}:{}", config.platform_host, config.platform_port);
@@ -57,7 +60,14 @@ async fn main() -> Result<()> {
 
     // 启动设备服务（支持重连、录像列表查询、回放）
     let video_dir = config.video_dir.clone();
-    let service = device_service::DeviceService::new(client, video_files, config.device_id, video_dir);
+    let device_id = config.device_id.clone();
+    let service = device_service::DeviceService::new_with_config(
+        client,
+        video_files,
+        device_id,
+        video_dir,
+        Some(config),
+    );
     service.run().await?;
 
     Ok(())
