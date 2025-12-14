@@ -148,14 +148,108 @@ function VideoPlayer({ sessionId, fileId, isLiveMode = false }: VideoPlayerProps
     }
   }
 
+  // 播放模式状态
+  const [selectedPlaybackMode, setSelectedPlaybackMode] = useState<'fast' | 'normal'>('normal')
+
   // 如果是直通播放模式或 H.264 回放，使用 WebCodecs 播放器
   if (isLiveMode) {
-    return <WebCodecsPlayer sessionId={sessionId} />
+    return (
+      <div>
+        {/* 播放模式选择器 */}
+        <div style={{
+          padding: '15px',
+          background: '#f5f5f5',
+          borderRadius: '8px',
+          marginBottom: '15px'
+        }}>
+          <h4 style={{ margin: '0 0 10px 0', fontSize: '16px', color: '#333' }}>播放模式选择</h4>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => setSelectedPlaybackMode('fast')}
+              style={{
+                padding: '10px 20px',
+                border: selectedPlaybackMode === 'fast' ? '2px solid #1890ff' : '1px solid #d9d9d9',
+                borderRadius: '6px',
+                background: selectedPlaybackMode === 'fast' ? '#e6f7ff' : '#fff',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: selectedPlaybackMode === 'fast' ? 'bold' : 'normal',
+                transition: 'all 0.3s'
+              }}
+            >
+              ⚡ Fast Mode
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                立即渲染（&lt;100ms）
+              </div>
+            </button>
+            
+            <button
+              onClick={() => setSelectedPlaybackMode('normal')}
+              style={{
+                padding: '10px 20px',
+                border: selectedPlaybackMode === 'normal' ? '2px solid #1890ff' : '1px solid #d9d9d9',
+                borderRadius: '6px',
+                background: selectedPlaybackMode === 'normal' ? '#e6f7ff' : '#fff',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: selectedPlaybackMode === 'normal' ? 'bold' : 'normal',
+                transition: 'all 0.3s'
+              }}
+            >
+              🎬 Normal Mode
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                时间戳控制 + 倍速
+              </div>
+            </button>
+            
+
+          </div>
+          
+          {/* 模式说明 */}
+          <div style={{
+            marginTop: '15px',
+            padding: '12px',
+            background: '#fff',
+            borderRadius: '6px',
+            border: '1px solid #e8e8e8'
+          }}>
+            <div style={{ fontSize: '13px', lineHeight: '1.6', color: '#666' }}>
+              {selectedPlaybackMode === 'fast' && (
+                <>
+                  <strong style={{ color: '#1890ff' }}>⚡ Fast Mode：</strong>
+                  解码后立即渲染，完全跳过缓冲，实现最低延迟（通常 &lt;100ms）。
+                  适合对延迟要求极高的场景。
+                </>
+              )}
+              {selectedPlaybackMode === 'normal' && (
+                <>
+                  <strong style={{ color: '#1890ff' }}>🎬 Normal Mode：</strong>
+                  基于 FPS 和时间戳双重控制播放速度，保证流畅稳定。
+                  延迟略高（200-500ms），但画面最流畅。
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+        
+        <WebCodecsPlayer 
+          key={selectedPlaybackMode} 
+          sessionId={sessionId} 
+          playbackMode={selectedPlaybackMode} 
+        />
+      </div>
+    )
   }
   
   // 如果是 H.264 文件回放，也使用 WebCodecs 播放器
   if (playbackMode === 'sse' && fileId && (fileId.toLowerCase().endsWith('.h264') || fileId.toLowerCase().endsWith('.264') || fileId.toLowerCase().includes('.h264') || fileId.toLowerCase().includes('.264'))) {
-    return <WebCodecsPlayer sessionId={sessionId} />
+    return (
+      <WebCodecsPlayer 
+        key={selectedPlaybackMode} 
+        sessionId={sessionId} 
+        playbackMode={selectedPlaybackMode} 
+      />
+    )
   }
 
   return (
