@@ -9,6 +9,7 @@
 // - 小分片读取（8KB-32KB）实现低延迟
 // - 速率控制支持0.25x-4x倍速
 
+use super::framerate::{FrameRateDetector, FrameRatePacer};
 use super::source::{
     SegmentFormat, SegmentSourceType, StreamError, StreamInfo, StreamMode, StreamSource, StreamState, VideoSegment,
 };
@@ -182,6 +183,10 @@ pub struct PlaybackSource {
     bitrate: Option<u64>,
     /// 总时长（秒）
     duration: Option<f64>,
+    /// 帧率检测器
+    frame_rate_detector: FrameRateDetector,
+    /// 帧率控制器
+    frame_rate_pacer: Option<FrameRatePacer>,
 }
 
 impl PlaybackSource {
@@ -209,6 +214,8 @@ impl PlaybackSource {
             frame_rate: None,
             bitrate: None,
             duration: Some(100.0), // 假设100秒时长
+            frame_rate_detector: FrameRateDetector::new(),
+            frame_rate_pacer: None, // 将在检测到帧率后初始化
         })
     }
 
@@ -301,15 +308,50 @@ impl StreamSource for PlaybackSource {
         // 从文件读取器获取分片
         match self.file_reader.read_segment().await {
             Ok(Some(segment)) => {
+                // 添加时间戳样本用于帧率检测
+                let pts_us = (segment.timestamp * 1_000_000.0) as u64;
+                let receive_time = SystemTime::now();
+                self.frame_rate_detector.add_timestamp_sample(pts_us, receive_time);
+                
+                // 更新检测到的帧率并初始化pacer
+                if let Some(detected_fps) = self.frame_rate_detector.get_fps() {
+                    let fps_changed = self.frame_rate.is_none() || 
+                                     (self.frame_rate.unwrap() - detected_fps).abs() > 1.0;
+                    
+                    if fps_changed {
+                        self.frame_rate = Some(detected_fps);
+                        debug!("Updated frame rate for file {}: {:.2} fps", 
+                               self.file_id, detected_fps);
+                        
+                        // 初始化或更新pacer
+                        if let Some(ref mut pacer) = self.frame_rate_pacer {
+                            pacer.update_target_fps(detected_fps);
+                        } else {
+                            let mut pacer = FrameRatePacer::new(detected_fps);
+                            if let Err(e) = pacer.set_playback_rate(self.playback_rate) {
+                                warn!("Failed to set playback rate: {}", e);
+                            }
+                            self.frame_rate_pacer = Some(pacer);
+                            debug!("Initialized FrameRatePacer for file {}", self.file_id);
+                        }
+                    }
+                }
+
                 debug!(
                     "Read playback segment: {} at {:.3}s",
                     segment.segment_id, segment.timestamp
                 );
 
-                // 根据播放速率控制发送间隔
-                if self.playback_rate != 1.0 {
-                    let delay = (segment.duration / self.playback_rate * 1000.0) as u64;
-                    tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+                // 使用FrameRatePacer控制发送速率
+                if let Some(ref mut pacer) = self.frame_rate_pacer {
+                    // 假设每个分片包含1帧（简化实现）
+                    pacer.wait_for_next_frame(1).await;
+                } else {
+                    // 如果pacer还未初始化，使用简单的延迟控制（回退方案）
+                    if self.playback_rate != 1.0 {
+                        let delay = (segment.duration / self.playback_rate * 1000.0) as u64;
+                        tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+                    }
                 }
 
                 Ok(Some(segment))
@@ -381,6 +423,13 @@ impl StreamSource for PlaybackSource {
 
         self.playback_rate = rate;
         self.file_reader.set_rate(rate);
+        
+        // 更新FrameRatePacer的倍速
+        if let Some(ref mut pacer) = self.frame_rate_pacer {
+            if let Err(e) = pacer.set_playback_rate(rate) {
+                warn!("Failed to update pacer playback rate: {}", e);
+            }
+        }
 
         Ok(())
     }

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import LatencyMonitor from './LatencyMonitor'
+import { FrameScheduler } from '../utils/frameScheduler'
 
 interface WebCodecsPlayerProps {
   sessionId: string
@@ -15,8 +16,12 @@ function WebCodecsPlayer({ sessionId }: WebCodecsPlayerProps) {
   const [error, setError] = useState<string | null>(null)
   const [segmentCount, setSegmentCount] = useState<number>(0)
   const [fps, setFps] = useState<number>(0)
+  const [targetFps, setTargetFps] = useState<number>(30) // 默认30fps
+  const [droppedFrames, setDroppedFrames] = useState<number>(0)
+  const [averageDelay, setAverageDelay] = useState<number>(0)
   const decoderRef = useRef<VideoDecoder | null>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
+  const frameSchedulerRef = useRef<FrameScheduler | null>(null)
   const frameCountRef = useRef<number>(0)
   const lastFpsUpdateRef = useRef<number>(Date.now())
   const isConfiguredRef = useRef<boolean>(false)
@@ -51,31 +56,30 @@ function WebCodecsPlayer({ sessionId }: WebCodecsPlayerProps) {
     console.log('Initializing WebCodecs player')
     
     try {
+      // 创建 FrameScheduler（默认30fps，后续可从服务器获取）
+      const scheduler = new FrameScheduler(targetFps)
+      frameSchedulerRef.current = scheduler
+
+      // 设置帧显示回调
+      scheduler.setDisplayCallback((frame: VideoFrame) => {
+        displayFrame(frame, canvas, ctx)
+      })
+
       // 创建 VideoDecoder
       const decoder = new VideoDecoder({
         output: (frame: VideoFrame) => {
-          // 渲染帧到 canvas
+          // 将帧交给调度器处理，而不是立即显示
           try {
-            // 调整 canvas 大小以匹配视频
-            if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
-              canvas.width = frame.displayWidth
-              canvas.height = frame.displayHeight
-              console.log(`Canvas resized to ${canvas.width}x${canvas.height}`)
-            }
+            const pts = frame.timestamp || 0 // 使用帧的时间戳
+            scheduler.addFrame(frame, pts)
 
-            ctx.drawImage(frame, 0, 0)
-            frame.close()
-
-            // 更新 FPS
-            frameCountRef.current++
-            const now = Date.now()
-            if (now - lastFpsUpdateRef.current >= 1000) {
-              setFps(frameCountRef.current)
-              frameCountRef.current = 0
-              lastFpsUpdateRef.current = now
-            }
+            // 更新统计信息
+            const stats = scheduler.getStats()
+            setDroppedFrames(stats.droppedFrames)
+            setAverageDelay(stats.averageDelay)
           } catch (err) {
-            console.error('Failed to render frame:', err)
+            console.error('Failed to schedule frame:', err)
+            frame.close()
           }
         },
         error: (err: Error) => {
@@ -93,6 +97,33 @@ function WebCodecsPlayer({ sessionId }: WebCodecsPlayerProps) {
     } catch (err) {
       console.error('Failed to initialize decoder:', err)
       setError('解码器初始化失败: ' + err)
+    }
+  }
+
+  /**
+   * 显示帧到 canvas（由 FrameScheduler 调用）
+   */
+  const displayFrame = (frame: VideoFrame, canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) => {
+    try {
+      // 调整 canvas 大小以匹配视频
+      if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+        canvas.width = frame.displayWidth
+        canvas.height = frame.displayHeight
+        console.log(`Canvas resized to ${canvas.width}x${canvas.height}`)
+      }
+
+      ctx.drawImage(frame, 0, 0)
+
+      // 更新 FPS
+      frameCountRef.current++
+      const now = Date.now()
+      if (now - lastFpsUpdateRef.current >= 1000) {
+        setFps(frameCountRef.current)
+        frameCountRef.current = 0
+        lastFpsUpdateRef.current = now
+      }
+    } catch (err) {
+      console.error('Failed to render frame:', err)
     }
   }
 
@@ -254,6 +285,11 @@ function WebCodecsPlayer({ sessionId }: WebCodecsPlayerProps) {
       }
       decoderRef.current = null
     }
+
+    if (frameSchedulerRef.current) {
+      frameSchedulerRef.current.destroy()
+      frameSchedulerRef.current = null
+    }
     
     isConfiguredRef.current = false
     pendingChunksRef.current = []
@@ -296,10 +332,46 @@ function WebCodecsPlayer({ sessionId }: WebCodecsPlayerProps) {
           <span className="label">接收分片:</span>
           <span className="value">{segmentCount}</span>
         </div>
-        <div className="info-row">
-          <span className="label">实时 FPS:</span>
-          <span className="value">{fps}</span>
+        
+        {/* 帧率统计 */}
+        <div className="info-section">
+          <h4 style={{ margin: '10px 0 5px 0', fontSize: '14px', color: '#666' }}>📊 帧率统计</h4>
+          <div className="info-row">
+            <span className="label">目标 FPS:</span>
+            <span className="value">{targetFps}</span>
+          </div>
+          <div className="info-row">
+            <span className="label">实际 FPS:</span>
+            <span className="value" style={{ 
+              color: Math.abs(fps - targetFps) / targetFps > 0.05 ? '#ff6b6b' : '#51cf66' 
+            }}>
+              {fps}
+            </span>
+          </div>
+          <div className="info-row">
+            <span className="label">速度误差:</span>
+            <span className="value" style={{ 
+              color: Math.abs(fps - targetFps) / targetFps > 0.05 ? '#ff6b6b' : '#51cf66' 
+            }}>
+              {targetFps > 0 ? ((fps - targetFps) / targetFps * 100).toFixed(1) : '0.0'}%
+            </span>
+          </div>
+          <div className="info-row">
+            <span className="label">丢帧数:</span>
+            <span className="value" style={{ color: droppedFrames > 0 ? '#ff6b6b' : '#51cf66' }}>
+              {droppedFrames}
+            </span>
+          </div>
+          <div className="info-row">
+            <span className="label">平均延迟:</span>
+            <span className="value" style={{ 
+              color: averageDelay > 16 ? '#ff6b6b' : '#51cf66' 
+            }}>
+              {averageDelay.toFixed(1)}ms
+            </span>
+          </div>
         </div>
+        
         <div className="info-row">
           <span className="label">解码方式:</span>
           <span className="value">🎯 WebCodecs API (硬件加速)</span>
@@ -312,6 +384,16 @@ function WebCodecsPlayer({ sessionId }: WebCodecsPlayerProps) {
           <p className="hint info">
             💡 超低延迟，硬件加速
           </p>
+          {Math.abs(fps - targetFps) / targetFps > 0.05 && fps > 0 && (
+            <p className="hint warning" style={{ color: '#ff922b' }}>
+              ⚠️ 播放速度偏差超过 5%
+            </p>
+          )}
+          {droppedFrames > 10 && (
+            <p className="hint warning" style={{ color: '#ff922b' }}>
+              ⚠️ 丢帧较多，可能影响播放流畅度
+            </p>
+          )}
         </div>
       </div>
     </div>

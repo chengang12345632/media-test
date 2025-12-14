@@ -9,11 +9,13 @@
 // - 不支持定位和倍速（直通播放特性）
 // - 零缓冲转发，最低延迟
 
+use super::framerate::FrameRateDetector;
 use super::source::{
     SegmentFormat, SegmentSourceType, StreamError, StreamInfo, StreamMode, StreamSource, StreamState,
 };
 use super::source::VideoSegment as SourceVideoSegment;
 use async_trait::async_trait;
+use std::time::SystemTime;
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
 
@@ -76,6 +78,8 @@ pub struct LiveStreamSource {
     frame_rate: Option<f64>,
     /// 码率
     bitrate: Option<u64>,
+    /// 帧率检测器
+    frame_rate_detector: FrameRateDetector,
 }
 
 impl LiveStreamSource {
@@ -99,6 +103,7 @@ impl LiveStreamSource {
             resolution: None,
             frame_rate: None,
             bitrate: None,
+            frame_rate_detector: FrameRateDetector::new(),
         }
     }
 
@@ -169,6 +174,21 @@ impl StreamSource for LiveStreamSource {
 
                 // 更新当前位置
                 self.current_position = common_segment.timestamp;
+
+                // 添加时间戳样本用于帧率检测
+                let pts_us = (common_segment.timestamp * 1_000_000.0) as u64;
+                let receive_time = SystemTime::now();
+                self.frame_rate_detector.add_timestamp_sample(pts_us, receive_time);
+                
+                // 更新检测到的帧率
+                if let Some(detected_fps) = self.frame_rate_detector.get_fps() {
+                    if self.frame_rate.is_none() || 
+                       (self.frame_rate.unwrap() - detected_fps).abs() > 1.0 {
+                        self.frame_rate = Some(detected_fps);
+                        debug!("Updated frame rate for device {}: {:.2} fps", 
+                               self.device_id, detected_fps);
+                    }
+                }
 
                 debug!(
                     "Received live segment: {} at {:.3}s",

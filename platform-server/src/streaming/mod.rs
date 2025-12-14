@@ -20,6 +20,7 @@
 pub mod error;
 pub mod file_reader;
 pub mod fmp4_converter;
+pub mod framerate;
 pub mod handler;
 pub mod live_source;
 pub mod playback_source;
@@ -29,6 +30,7 @@ pub mod source;
 pub use error::{ErrorRecoveryPolicy, RetryStrategy, StreamError};
 pub use file_reader::{FileReaderConfig, FileStreamReader};
 pub use fmp4_converter::{FMP4Converter, FMP4ConverterConfig};
+pub use framerate::{DetectionMethod, FrameRateDetector, FrameRateInfo};
 pub use handler::{BufferConfig, LatencyAlert, StreamConfig, StreamStats, UnifiedStreamHandler};
 pub use live_source::LiveStreamSource;
 pub use playback_source::PlaybackSource;

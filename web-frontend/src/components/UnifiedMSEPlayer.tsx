@@ -45,6 +45,13 @@ function UnifiedMSEPlayer({
     droppedFrames: 0,
   })
 
+  const [fpsStats, setFpsStats] = useState({
+    currentFps: 0,
+    targetFps: 30, // 默认30fps，可从服务器获取
+    frameCount: 0,
+    lastUpdateTime: Date.now(),
+  })
+
   const [playbackRate, setPlaybackRate] = useState(1.0)
   const [isPaused, setIsPaused] = useState(false)
   const [duration, setDuration] = useState(0)
@@ -790,13 +797,36 @@ function UnifiedMSEPlayer({
     setStatus('已停止')
   }
 
-  // 监听视频时间更新
+  // 监听视频时间更新和计算 FPS
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
     
     const handleTimeUpdate = () => {
       setCurrentTime(video.currentTime)
+      
+      // 计算 FPS（基于 timeupdate 事件频率）
+      setFpsStats(prev => {
+        const now = Date.now()
+        const newFrameCount = prev.frameCount + 1
+        const timeDiff = now - prev.lastUpdateTime
+        
+        // 每秒更新一次 FPS
+        if (timeDiff >= 1000) {
+          const fps = (newFrameCount / timeDiff) * 1000
+          return {
+            ...prev,
+            currentFps: Math.round(fps),
+            frameCount: 0,
+            lastUpdateTime: now,
+          }
+        }
+        
+        return {
+          ...prev,
+          frameCount: newFrameCount,
+        }
+      })
     }
     
     const handleDurationChange = () => {
@@ -946,6 +976,45 @@ function UnifiedMSEPlayer({
           </div>
         </div>
 
+        {/* 帧率统计 */}
+        <div className="info-section" style={{ marginTop: '15px' }}>
+          <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#666', fontWeight: 600 }}>
+            📊 帧率统计
+          </h4>
+          <div className="info-grid">
+            <div className="info-item">
+              <span className="label">目标 FPS:</span>
+              <span className="value">{fpsStats.targetFps}</span>
+            </div>
+            <div className="info-item">
+              <span className="label">实际 FPS:</span>
+              <span className="value" style={{ 
+                color: Math.abs(fpsStats.currentFps - fpsStats.targetFps) / fpsStats.targetFps > 0.05 
+                  ? '#ff6b6b' 
+                  : '#51cf66' 
+              }}>
+                {fpsStats.currentFps}
+              </span>
+            </div>
+            <div className="info-item">
+              <span className="label">速度误差:</span>
+              <span className="value" style={{ 
+                color: Math.abs(fpsStats.currentFps - fpsStats.targetFps) / fpsStats.targetFps > 0.05 
+                  ? '#ff6b6b' 
+                  : '#51cf66' 
+              }}>
+                {fpsStats.targetFps > 0 
+                  ? ((fpsStats.currentFps - fpsStats.targetFps) / fpsStats.targetFps * 100).toFixed(1) 
+                  : '0.0'}%
+              </span>
+            </div>
+            <div className="info-item">
+              <span className="label">播放速率:</span>
+              <span className="value">{playbackRate}x</span>
+            </div>
+          </div>
+        </div>
+
         <div className="stats-grid">
           <div className="stat-item">
             <span className="stat-label">接收分片:</span>
@@ -959,9 +1028,41 @@ function UnifiedMSEPlayer({
           </div>
           <div className="stat-item">
             <span className="stat-label">丢帧:</span>
-            <span className="stat-value">{stats.droppedFrames}</span>
+            <span className="stat-value" style={{ 
+              color: stats.droppedFrames > 0 ? '#ff6b6b' : '#51cf66' 
+            }}>
+              {stats.droppedFrames}
+            </span>
           </div>
         </div>
+
+        {/* 警告提示 */}
+        {(Math.abs(fpsStats.currentFps - fpsStats.targetFps) / fpsStats.targetFps > 0.05 && fpsStats.currentFps > 0) && (
+          <div style={{ 
+            marginTop: '10px', 
+            padding: '8px 12px', 
+            backgroundColor: '#fff3cd', 
+            border: '1px solid #ffc107',
+            borderRadius: '4px',
+            fontSize: '12px',
+            color: '#856404'
+          }}>
+            ⚠️ 播放速度偏差超过 5%
+          </div>
+        )}
+        {stats.droppedFrames > 10 && (
+          <div style={{ 
+            marginTop: '10px', 
+            padding: '8px 12px', 
+            backgroundColor: '#f8d7da', 
+            border: '1px solid #f5c6cb',
+            borderRadius: '4px',
+            fontSize: '12px',
+            color: '#721c24'
+          }}>
+            ⚠️ 丢帧较多 ({stats.droppedFrames})，可能影响播放流畅度
+          </div>
+        )}
       </div>
     </div>
   )
